@@ -185,17 +185,19 @@ ask_core() {
       "${ANSWERS[REMNAWAVE_URL]}" n n
 }
 
-# ---------- Автоопределение версии Remnawave ----------
-detect_remnawave_generation() {
+# ---------- Определение версии Remnawave ----------
+# Приоритет — автоопределение. Спрашиваем только если не получилось.
+# В .env пишем REMNAWAVE_API_GENERATION=2.x или 3.x+ (remna.py ждёт эти значения).
+detect_remnawave_version() {
   echo
-  echo "${BOLD}=== Определение версии Remnawave ===${NC}"
+  echo "${BOLD}=== Версия Remnawave ===${NC}"
   echo
 
   local url="${ANSWERS[REMNAWAVE_URL]}"
   local token="${ANSWERS[REMNAWAVE_API_TOKEN]}"
   local verify="${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
 
-  log "Запрашиваю /api/system/metadata…"
+  log "Определяю версию автоматически (запрос /api/system/metadata)…"
 
   local response
   response=$(
@@ -231,38 +233,59 @@ except Exception:
 PYEOF
   )
 
-  local generation=""
-  local detected_version=""
-
+  # Автоопределение сработало — не спрашиваем ничего, идём дальше.
   if [[ -n "$response" ]]; then
-    detected_version="$response"
-    local major="${detected_version%%.*}"
+    local major="${response%%.*}"
     if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 3 )); then
-      generation="3.x+"
+      ANSWERS[REMNAWAVE_API_GENERATION]="3.x+"
     else
-      generation="2.x"
+      ANSWERS[REMNAWAVE_API_GENERATION]="2.x"
     fi
-    ok "Remnawave версия: ${detected_version} → поколение API: ${generation}"
-  else
-    warn "Не удалось определить версию автоматически."
-    warn "Возможные причины: нет сети, неверный API-токен, SSL-ошибка, панель недоступна."
-    warn "Можно указать поколение вручную."
-    ANSWERS[REMNAWAVE_API_GENERATION]=""
-    ask_choice REMNAWAVE_API_GENERATION \
-        "Поколение API Remnawave (2.x = uuid, 3.x+ = numeric id):" \
-        "2.x 3.x+" "2.x"
+    ANSWERS[REMNAWAVE_DETECTED_VERSION]="$response"
+    ok "Remnawave ${response} → версия ${major} — определено автоматически"
     return 0
   fi
 
-  ANSWERS[REMNAWAVE_API_GENERATION]="$generation"
+  # Автоопределение не сработало — один простой вопрос.
+  warn "Не удалось определить версию автоматически."
+  echo "  Возможные причины: панель недоступна, неверный токен, ошибка SSL,"
+  echo "  либо в этой версии Remnawave нет эндпоинта /api/system/metadata."
+  echo
+  echo "  ${BOLD}Где посмотреть версию:${NC}"
+  echo "    Открой панель в браузере: ${CYAN}${url}${NC}"
+  echo "    Версия обычно видна внизу страницы или в разделе About."
+  echo "    Например: ${CYAN}2.8.0${NC} или ${CYAN}3.0.5${NC}"
+  echo
+  echo "  ${BOLD}Какая версия у тебя?${NC}"
+  echo "    ${CYAN}2${NC} — если версия начинается на 2 (2.6, 2.7, 2.8, ...)"
+  echo "    ${CYAN}3${NC} — если версия начинается на 3 или больше (3.0, 3.1, ...)"
+  echo
 
-  ask_yes_no CONFIRM_GENERATION \
-      "Поколение API ${generation} определено верно?" "y"
+  local input choice
+  while true; do
+    read -r -p "  Версия Remnawave (${CYAN}2${NC} или ${CYAN}3${NC}) [${CYAN}2${NC}]: " input
+    input="${input:-2}"
 
-  if [[ "${ANSWERS[CONFIRM_GENERATION]}" != "y" ]]; then
-    ask_choice REMNAWAVE_API_GENERATION \
-        "Укажи поколение API вручную (2.x = uuid, 3.x+ = numeric id):" \
-        "2.x 3.x+" "$generation"
+    case "${input,,}" in
+      2|2x|2.x)
+        choice="2.x"
+        break
+        ;;
+      3|3x|3.x|3.x+|3x+|3.0|4|4.x)
+        choice="3.x+"
+        break
+        ;;
+      *)
+        err "Не понял ответ «$input». Введи 2 или 3."
+        ;;
+    esac
+  done
+
+  ANSWERS[REMNAWAVE_API_GENERATION]="$choice"
+  if [[ "$choice" == "2.x" ]]; then
+    ok "Версия Remnawave: 2 — по UUID"
+  else
+    ok "Версия Remnawave: 3+ — по числовому id"
   fi
 }
 
@@ -326,15 +349,15 @@ ask_platega() {
         "${ANSWERS[PLATEGA_RETURN_URL]}" n n
     validate_url "${ANSWERS[PLATEGA_FAILED_URL]}" "PLATEGA_FAILED_URL"
 
-    ask PLATEGA_TOPUPS "Суммы (RUB:STARS через запятую)" \
-        "100:25,200:50,400:100,800:200" n n
+    ask PLATEGA_TOPUPS "Суммы (RUB:STARS через запятую внутреняя валюта звезды по дефолту 1 единица внутрений валюты 2 рубля)" \
+        "100:50,200:100,400:200,800:400" n n
     validate_topups
   else
     ANSWERS[PLATEGA_MERCHANT_ID]=""
     ANSWERS[PLATEGA_SECRET]=""
     ANSWERS[PLATEGA_RETURN_URL]=""
     ANSWERS[PLATEGA_FAILED_URL]=""
-    ANSWERS[PLATEGA_TOPUPS]="100:25,200:50,400:100,800:200"
+    ANSWERS[PLATEGA_TOPUPS]="100:50,200:100,400:200,800:400"
   fi
 }
 
@@ -381,7 +404,7 @@ ask_background() {
 
   if [[ "${ANSWERS[AUTO_RENEW_ENABLED]}" == "y" ]]; then
     ask_yes_no AUTO_RENEW_FORCE_MONTH \
-        "Автопродление ВСЕГДА на 30 дней (даже если тариф 7/60 дней)?" "n"
+        "Автопродление ВСЕГДА на 30 дней (без вариантов только y)?" "n"
   else
     ANSWERS[AUTO_RENEW_FORCE_MONTH]="n"
   fi
@@ -391,7 +414,7 @@ ask_background() {
 
   if [[ "${ANSWERS[RECONCILE_ENABLED]}" == "y" ]]; then
     ask_yes_no RECONCILE_AUTO_FIX \
-        "Автоматически исправлять рассинхронизацию (ОПАСНО: может включить отключённые вручную подписки)?" "n"
+        "Автоматически исправлять рассинхронизацию ?" "n"
   else
     ANSWERS[RECONCILE_AUTO_FIX]="n"
   fi
@@ -499,7 +522,7 @@ show_summary() {
   echo "  REMNAWAVE_URL:        ${ANSWERS[REMNAWAVE_URL]}"
   echo "  REMNAWAVE_TOKEN:      ${ANSWERS[REMNAWAVE_API_TOKEN]:0:10}…"
   echo "  SSL verify:           ${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
-  echo "  Remnawave поколение:  ${ANSWERS[REMNAWAVE_API_GENERATION]}"
+  echo "  Версия Remnawave:     ${ANSWERS[REMNAWAVE_API_GENERATION]}"
   echo "  Инфо-канал:           ${ANSWERS[INFO_CHANNEL_USERNAME]:-(выкл)}"
   echo "  Партнёрская Stars:    ${ANSWERS[STARS_PARTNER_URL]:-(выкл)}"
   echo "  Platega:              $( [[ -n "${ANSWERS[PLATEGA_MERCHANT_ID]}" ]] && echo "вкл (${ANSWERS[PLATEGA_MERCHANT_ID]})" || echo "выкл" )"
@@ -647,7 +670,7 @@ main() {
 
   if [[ "${SKIP_ENV}" != "1" ]]; then
     ask_core
-    detect_remnawave_generation
+    detect_remnawave_version
     ask_brand
     ask_info_channel
     ask_stars_partner
