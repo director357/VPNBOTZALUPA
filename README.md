@@ -84,7 +84,7 @@
 
 ```bash
 # 1. Клонируй репозиторий
-git clone https://github.com/your-name/sell_bot_tg.git
+git clone https://github.com/director357/sell_bot_tg.git
 cd sell_bot_tg
 
 # 2. Запусти установщик
