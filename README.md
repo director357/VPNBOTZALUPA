@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🛡️ VPN Bot
+# 🛡️ VPN Bot ZALUPA
 
 **Telegram-бот для продажи VPN-подписок через [Remnawave](https://docs.rw)**
 
