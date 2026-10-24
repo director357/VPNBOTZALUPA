@@ -200,21 +200,29 @@ def refill_menu_kb() -> InlineKeyboardMarkup:
         ]
     )
 
-
 def stars_refill_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                kb_button("25★", callback_data="topup:25", emoji_key="stars"),
-                kb_button("50★", callback_data="topup:50", emoji_key="stars"),
-            ],
-            [
-                kb_button("100★", callback_data="topup:100", emoji_key="stars"),
-                kb_button("200★", callback_data="topup:200", emoji_key="stars"),
-            ],
-            [kb_button("Назад", callback_data="menu:refill", emoji_key="prev")],
-        ]
-    )
+    from prices import STARS_TOPUP_AMOUNTS
+
+    rows: list[list[InlineKeyboardButton]] = []
+    pair: list[InlineKeyboardButton] = []
+
+    for amount in STARS_TOPUP_AMOUNTS:
+        pair.append(
+            kb_button(
+                f"{int(amount)}★",
+                callback_data=f"topup:{int(amount)}",
+                emoji_key="stars",
+            )
+        )
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+
+    rows.append([kb_button("Назад", callback_data="menu:refill", emoji_key="prev")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def platega_refill_kb(options) -> InlineKeyboardMarkup:
@@ -239,23 +247,42 @@ def platega_refill_kb(options) -> InlineKeyboardMarkup:
     rows.append([kb_button("Назад", callback_data="menu:refill", emoji_key="prev")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
-
 def buy_menu_kb() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                kb_button("Пробный 3 дня", callback_data="buy:trial_3d", style="success"),
-                kb_button("7 дней (25★)", callback_data="buy:week_7d", emoji_key="buy"),
-            ],
-            [
-                kb_button("30 дней (50★)", callback_data="buy:month_30d", emoji_key="buy"),
-                kb_button("60 дней (100★)", callback_data="buy:month_60d", emoji_key="buy"),
-            ],
-            [kb_button("Пополнить баланс", callback_data="menu:refill", emoji_key="wallet", style="primary")],
-            [kb_button("В главное меню", callback_data="menu:main", emoji_key="home")],
-        ]
-    )
+    from prices import PLANS
 
+    rows: list[list[InlineKeyboardButton]] = []
+    pair: list[InlineKeyboardButton] = []
+
+    for plan_key, plan in PLANS.items():
+        title = str(plan["title"])
+        price = int(plan["price"])
+        is_trial = bool(plan.get("is_trial"))
+
+        if is_trial or price == 0:
+            label = title
+            style = "success"
+        else:
+            label = f"{title} ({price}★)"
+            style = None
+
+        pair.append(
+            kb_button(
+                label,
+                callback_data=f"buy:{plan_key}",
+                emoji_key="buy" if not is_trial else None,
+                style=style,
+            )
+        )
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+
+    rows.append([kb_button("Пополнить баланс", callback_data="menu:refill", emoji_key="wallet", style="primary")])
+    rows.append([kb_button("В главное меню", callback_data="menu:main", emoji_key="home")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def subscriptions_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
