@@ -504,4 +504,7 @@ A: Восстанови из бэкапа или пересоздай через
 
 [🐛 Нашёл баг?](https://github.com/director357/sell_bot_tg/issues) · [💡 Есть идея?](https://github.com/director357/sell_bot_tg/issues) · [🍴 Форкни](https://github.com/director357/sell_bot_tg/fork)
 
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/zalupabotvpn)
+
+**[👉 t.me/zalupabotvpn](https://t.me/zalupabotvpn)**
 </div>
