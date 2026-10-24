@@ -2,8 +2,8 @@
 #
 # VPN Bot — интерактивный установщик.
 #
-# Спрашивает все нужные переменные, валидирует, генерирует .env,
-# создаёт venv, ставит зависимости, настраивает systemd, запускает.
+# Спрашивает токены, цены тарифов, суммы пополнения, флаги.
+# Генерирует .env, создаёт venv, настраивает systemd, запускает.
 #
 # Использование:
 #   sudo bash install.sh
@@ -52,7 +52,6 @@ check_systemd() {
 # ---------- Ввод ----------
 declare -A ANSWERS
 
-# ask <переменная> <вопрос> <дефолт> [обязательная:y/n] [секрет:y/n]
 ask() {
   local var="$1" prompt="$2" default="${3:-}" required="${4:-n}" secret="${5:-n}"
   local value=""
@@ -82,7 +81,6 @@ ask() {
   done
 }
 
-# ask_yes_no <переменная> <вопрос> <дефолт:y/n>
 ask_yes_no() {
   local var="$1" prompt="$2" default="${3:-n}"
   local input
@@ -97,7 +95,6 @@ ask_yes_no() {
   done
 }
 
-# ask_choice <переменная> <вопрос> <варианты через пробел> <дефолт>
 ask_choice() {
   local var="$1" prompt="$2" choices="$3" default="$4"
   local input
@@ -116,7 +113,7 @@ ask_choice() {
   done
 }
 
-# ---------- Валидация форматов ----------
+# ---------- Валидация ----------
 validate_bot_token() {
   local v="${ANSWERS[BOT_TOKEN]}"
   [[ "$v" =~ ^[0-9]{6,12}:[A-Za-z0-9_-]{20,}$ ]] \
@@ -133,7 +130,6 @@ validate_url() {
   [[ "$v" =~ ^https?:// ]] || die "$name должен начинаться с http:// или https://"
 }
 
-# Публичный username канала/юзера: 4-32 символа, латиница/цифры/_
 validate_username() {
   local v="$1" name="$2" allow_empty="${3:-y}"
   if [[ -z "$v" && "$allow_empty" == "y" ]]; then
@@ -143,14 +139,33 @@ validate_username() {
     || die "$name: только латиница/цифры/_, 4-32 символа, без @"
 }
 
-# PLATEGA_TOPUPS: RUB:STARS через запятую
+validate_positive_int() {
+  local v="$1" name="$2"
+  [[ "$v" =~ ^[0-9]+$ ]] && (( v > 0 )) \
+    || die "$name должен быть положительным целым числом"
+}
+
+validate_non_negative_int() {
+  local v="$1" name="$2"
+  [[ "$v" =~ ^[0-9]+$ ]] \
+    || die "$name должен быть целым числом >= 0"
+}
+
+# PLATEGA_TOPUPS: RUB:STARS,RUB:STARS
 validate_topups() {
   local v="${ANSWERS[PLATEGA_TOPUPS]}"
   [[ "$v" =~ ^[0-9]+:[0-9]+(,[0-9]+:[0-9]+)*$ ]] \
-    || die "PLATEGA_TOPUPS: формат RUB:STARS,RUB:STARS (напр. 100:25,200:50,400:100,800:200)"
+    || die "PLATEGA_TOPUPS: формат RUB:STARS,RUB:STARS (напр. 100:50,200:100,400:200,800:400)"
 }
 
-# ---------- Диалог: основное ----------
+# STARS_TOPUP_AMOUNTS: 25,50,100,200
+validate_stars_amounts() {
+  local v="${ANSWERS[STARS_TOPUP_AMOUNTS]}"
+  [[ "$v" =~ ^[0-9]+(,[0-9]+)*$ ]] \
+    || die "STARS_TOPUP_AMOUNTS: формат 25,50,100,200"
+}
+
+# ---------- Основное ----------
 ask_core() {
   echo
   echo "${BOLD}=== Основное (обязательно) ===${NC}"
@@ -185,9 +200,7 @@ ask_core() {
       "${ANSWERS[REMNAWAVE_URL]}" n n
 }
 
-# ---------- Определение версии Remnawave ----------
-# Приоритет — автоопределение. Спрашиваем только если не получилось.
-# В .env пишем REMNAWAVE_API_GENERATION=2.x или 3.x+ (remna.py ждёт эти значения).
+# ---------- Версия Remnawave ----------
 detect_remnawave_version() {
   echo
   echo "${BOLD}=== Версия Remnawave ===${NC}"
@@ -233,7 +246,6 @@ except Exception:
 PYEOF
   )
 
-  # Автоопределение сработало — не спрашиваем ничего, идём дальше.
   if [[ -n "$response" ]]; then
     local major="${response%%.*}"
     if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 3 )); then
@@ -241,64 +253,105 @@ PYEOF
     else
       ANSWERS[REMNAWAVE_API_GENERATION]="2.x"
     fi
-    ANSWERS[REMNAWAVE_DETECTED_VERSION]="$response"
     ok "Remnawave ${response} → версия ${major} — определено автоматически"
     return 0
   fi
 
-  # Автоопределение не сработало — один простой вопрос.
   warn "Не удалось определить версию автоматически."
-  echo "  Возможные причины: панель недоступна, неверный токен, ошибка SSL,"
-  echo "  либо в этой версии Remnawave нет эндпоинта /api/system/metadata."
+  echo "  Открой панель в браузере: ${CYAN}${url}${NC}"
+  echo "  Версия внизу страницы / в разделе About. Пример: ${CYAN}2.8.0${NC} или ${CYAN}3.0.5${NC}"
   echo
-  echo "  ${BOLD}Где посмотреть версию:${NC}"
-  echo "    Открой панель в браузере: ${CYAN}${url}${NC}"
-  echo "    Версия обычно видна внизу страницы или в разделе About."
-  echo "    Например: ${CYAN}2.8.0${NC} или ${CYAN}3.0.5${NC}"
-  echo
-  echo "  ${BOLD}Какая версия у тебя?${NC}"
-  echo "    ${CYAN}2${NC} — если версия начинается на 2 (2.6, 2.7, 2.8, ...)"
-  echo "    ${CYAN}3${NC} — если версия начинается на 3 или больше (3.0, 3.1, ...)"
+  echo "  ${CYAN}2${NC} — версия 2.x (2.6, 2.7, 2.8, ...)"
+  echo "  ${CYAN}3${NC} — версия 3.x и новее (3.0, 3.1, ...)"
   echo
 
   local input choice
   while true; do
     read -r -p "  Версия Remnawave (${CYAN}2${NC} или ${CYAN}3${NC}) [${CYAN}2${NC}]: " input
     input="${input:-2}"
-
     case "${input,,}" in
-      2|2x|2.x)
-        choice="2.x"
-        break
-        ;;
-      3|3x|3.x|3.x+|3x+|3.0|4|4.x)
-        choice="3.x+"
-        break
-        ;;
-      *)
-        err "Не понял ответ «$input». Введи 2 или 3."
-        ;;
+      2|2x|2.x)              choice="2.x";  break ;;
+      3|3x|3.x|3.x+|3x+|3.0|4|4.x) choice="3.x+"; break ;;
+      *) err "Введи 2 или 3." ;;
     esac
   done
-
   ANSWERS[REMNAWAVE_API_GENERATION]="$choice"
-  if [[ "$choice" == "2.x" ]]; then
-    ok "Версия Remnawave: 2 — по UUID"
-  else
-    ok "Версия Remnawave: 3+ — по числовому id"
-  fi
+  ok "Версия Remnawave: ${choice}"
 }
 
-# ---------- Диалог: бренд ----------
+# ---------- Бренд ----------
 ask_brand() {
   echo
   echo "${BOLD}=== Бренд ===${NC}"
   echo
-  ask BRAND_NAME "Название сервиса (бренд, попадёт в тексты бота)" \
-      "VPN" n n
+  ask BRAND_NAME "Название сервиса (попадёт в тексты бота)" "VPN" n n
 }
 
-# ---------- Диалог: подписка на канал ----------
+# ---------- Цены и тарифы ----------
+ask_prices() {
+  echo
+  echo "${BOLD}=== Цены и тарифы ===${NC}"
+  echo
+  echo "  Все цены указываются в звёздах (★)."
+  echo "  Пробный тариф обычно бесплатный — цена 0."
+  echo
+
+  # --- Триал ---
+  echo "  ${BOLD}Пробный тариф${NC}"
+  ask PLAN_TRIAL_TITLE "  Название" "Пробный 3 дня" n n
+  ask PLAN_TRIAL_DAYS  "  Длительность (дней)" "3" n n
+  validate_positive_int "${ANSWERS[PLAN_TRIAL_DAYS]}" "PLAN_TRIAL_DAYS"
+  ask PLAN_TRIAL_PRICE "  Цена в звёздах (0 = бесплатно)" "0" n n
+  validate_non_negative_int "${ANSWERS[PLAN_TRIAL_PRICE]}" "PLAN_TRIAL_PRICE"
+
+  # --- 7 дней ---
+  echo
+  echo "  ${BOLD}Тариф «7 дней»${NC}"
+  ask PLAN_WEEK_TITLE "  Название" "7 дней" n n
+  ask PLAN_WEEK_DAYS  "  Длительность (дней)" "7" n n
+  validate_positive_int "${ANSWERS[PLAN_WEEK_DAYS]}" "PLAN_WEEK_DAYS"
+  ask PLAN_WEEK_PRICE "  Цена в звёздах" "25" n n
+  validate_non_negative_int "${ANSWERS[PLAN_WEEK_PRICE]}" "PLAN_WEEK_PRICE"
+
+  # --- 30 дней ---
+  echo
+  echo "  ${BOLD}Тариф «30 дней»${NC}"
+  ask PLAN_MONTH_TITLE "  Название" "30 дней" n n
+  ask PLAN_MONTH_DAYS  "  Длительность (дней)" "30" n n
+  validate_positive_int "${ANSWERS[PLAN_MONTH_DAYS]}" "PLAN_MONTH_DAYS"
+  ask PLAN_MONTH_PRICE "  Цена в звёздах" "50" n n
+  validate_non_negative_int "${ANSWERS[PLAN_MONTH_PRICE]}" "PLAN_MONTH_PRICE"
+
+  # --- 60 дней ---
+  echo
+  echo "  ${BOLD}Тариф «60 дней»${NC}"
+  ask PLAN_2MONTH_TITLE "  Название" "60 дней" n n
+  ask PLAN_2MONTH_DAYS  "  Длительность (дней)" "60" n n
+  validate_positive_int "${ANSWERS[PLAN_2MONTH_DAYS]}" "PLAN_2MONTH_DAYS"
+  ask PLAN_2MONTH_PRICE "  Цена в звёздах" "100" n n
+  validate_non_negative_int "${ANSWERS[PLAN_2MONTH_PRICE]}" "PLAN_2MONTH_PRICE"
+
+  # --- Пополнение через Stars ---
+  echo
+  echo "  ${BOLD}Пополнение через Telegram Stars${NC}"
+  echo "  Номиналы в звёздах (1★ = 1★, без курса)."
+  ask STARS_TOPUP_AMOUNTS \
+      "  Номиналы через запятую" "25,50,100,200" n n
+  validate_stars_amounts
+
+  # --- Пополнение через Platega ---
+  echo
+  echo "  ${BOLD}Суммы пополнения через Platega (карта / СБП)${NC}"
+  echo "  Формат: RUB:STARS,RUB:STARS"
+  echo "  Пример: 100:50,200:100,400:200,800:400"
+  echo "  Значит: 100 ₽ → 50★, 200 ₽ → 100★, и т.д."
+  echo "  Влияет только на оплату картой (Stars идут 1:1)."
+  ask PLATEGA_TOPUPS \
+      "  Суммы (RUB:STARS через запятую)" "100:50,200:100,400:200,800:400" n n
+  validate_topups
+}
+
+# ---------- Инфо-канал ----------
 ask_info_channel() {
   echo
   ask_yes_no ENABLE_INFO_CHANNEL \
@@ -317,7 +370,7 @@ ask_info_channel() {
   fi
 }
 
-# ---------- Диалог: партнёрская ссылка Stars ----------
+# ---------- Партнёрская ссылка Stars ----------
 ask_stars_partner() {
   echo
   ask_yes_no ENABLE_STARS_PARTNER \
@@ -325,15 +378,14 @@ ask_stars_partner() {
 
   if [[ "${ANSWERS[ENABLE_STARS_PARTNER]}" == "y" ]]; then
     ask STARS_PARTNER_URL \
-        "URL партнёрской ссылки на Stars (напр. https://t.me/starsov?start=rXXX)" \
-        "" y n
+        "URL партнёрской ссылки на Stars" "" y n
     validate_url "${ANSWERS[STARS_PARTNER_URL]}" "STARS_PARTNER_URL"
   else
     ANSWERS[STARS_PARTNER_URL]=""
   fi
 }
 
-# ---------- Диалог: Platega ----------
+# ---------- Platega (без TOPUPS, они в ask_prices) ----------
 ask_platega() {
   echo
   ask_yes_no ENABLE_PLATEGA "Подключить оплату картой/СБП через Platega?" "n"
@@ -348,20 +400,15 @@ ask_platega() {
     ask PLATEGA_FAILED_URL  "URL при ошибке (Enter = = return URL)" \
         "${ANSWERS[PLATEGA_RETURN_URL]}" n n
     validate_url "${ANSWERS[PLATEGA_FAILED_URL]}" "PLATEGA_FAILED_URL"
-
-    ask PLATEGA_TOPUPS "Суммы (RUB:STARS через запятую внутреняя валюта звезды по дефолту 1 единица внутрений валюты 2 рубля)" \
-        "100:50,200:100,400:200,800:400" n n
-    validate_topups
   else
     ANSWERS[PLATEGA_MERCHANT_ID]=""
     ANSWERS[PLATEGA_SECRET]=""
     ANSWERS[PLATEGA_RETURN_URL]=""
     ANSWERS[PLATEGA_FAILED_URL]=""
-    ANSWERS[PLATEGA_TOPUPS]="100:50,200:100,400:200,800:400"
   fi
 }
 
-# ---------- Диалог: админ-уведомления ----------
+# ---------- Админ-уведомления ----------
 ask_admin_notify() {
   echo
   ask_yes_no ENABLE_ADMIN_NOTIFY \
@@ -376,7 +423,7 @@ ask_admin_notify() {
   fi
 }
 
-# ---------- Диалог: юр. ссылки ----------
+# ---------- Юр. ссылки ----------
 ask_legal() {
   echo
   echo "${BOLD}=== Юридические ссылки (Enter = оставить дефолт) ===${NC}"
@@ -390,7 +437,7 @@ ask_legal() {
   validate_url "${ANSWERS[LEGAL_TERMS_URL]}" "LEGAL_TERMS_URL"
 }
 
-# ---------- Диалог: фоновые процессы ----------
+# ---------- Фоновые процессы ----------
 ask_background() {
   echo
   echo "${BOLD}=== Фоновые процессы ===${NC}"
@@ -404,7 +451,7 @@ ask_background() {
 
   if [[ "${ANSWERS[AUTO_RENEW_ENABLED]}" == "y" ]]; then
     ask_yes_no AUTO_RENEW_FORCE_MONTH \
-        "Автопродление ВСЕГДА на 30 дней (без вариантов только y)?" "n"
+        "Автопродление ВСЕГДА на 30 дней (даже если тариф 7/60 дней)?" "n"
   else
     ANSWERS[AUTO_RENEW_FORCE_MONTH]="n"
   fi
@@ -414,7 +461,7 @@ ask_background() {
 
   if [[ "${ANSWERS[RECONCILE_ENABLED]}" == "y" ]]; then
     ask_yes_no RECONCILE_AUTO_FIX \
-        "Автоматически исправлять рассинхронизацию ?" "n"
+        "Автоматически исправлять рассинхронизацию (ОПАСНО: может включить отключённые вручную)?" "n"
   else
     ANSWERS[RECONCILE_AUTO_FIX]="n"
   fi
@@ -433,7 +480,6 @@ generate_env() {
   [[ "${ANSWERS[RECONCILE_ENABLED]}"         == "y" ]] && recon_enabled="true" || recon_enabled="false"
   [[ "${ANSWERS[RECONCILE_AUTO_FIX]}"        == "y" ]] && recon_autofix="true" || recon_autofix="false"
 
-  # Пишем через printf, чтобы символы $ и ` в значениях не интерпретировались.
   {
     printf '# Сгенерировано install.sh %s\n\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
@@ -444,6 +490,32 @@ generate_env() {
     printf 'ADMIN_ID=%s\n'            "${ANSWERS[ADMIN_ID]}"
     printf 'SUPPORT_USERNAME=%s\n'    "${ANSWERS[SUPPORT_USERNAME]}"
     printf 'BRAND_NAME=%s\n'          "${ANSWERS[BRAND_NAME]}"
+    printf '\n'
+
+    printf '# ============================================================\n'
+    printf '#  Цены и тарифы (в звёздах)\n'
+    printf '# ============================================================\n'
+    printf 'PLAN_TRIAL_TITLE=%s\n'    "${ANSWERS[PLAN_TRIAL_TITLE]}"
+    printf 'PLAN_TRIAL_DAYS=%s\n'     "${ANSWERS[PLAN_TRIAL_DAYS]}"
+    printf 'PLAN_TRIAL_PRICE=%s\n'    "${ANSWERS[PLAN_TRIAL_PRICE]}"
+    printf '\n'
+    printf 'PLAN_WEEK_TITLE=%s\n'     "${ANSWERS[PLAN_WEEK_TITLE]}"
+    printf 'PLAN_WEEK_DAYS=%s\n'      "${ANSWERS[PLAN_WEEK_DAYS]}"
+    printf 'PLAN_WEEK_PRICE=%s\n'     "${ANSWERS[PLAN_WEEK_PRICE]}"
+    printf '\n'
+    printf 'PLAN_MONTH_TITLE=%s\n'    "${ANSWERS[PLAN_MONTH_TITLE]}"
+    printf 'PLAN_MONTH_DAYS=%s\n'     "${ANSWERS[PLAN_MONTH_DAYS]}"
+    printf 'PLAN_MONTH_PRICE=%s\n'    "${ANSWERS[PLAN_MONTH_PRICE]}"
+    printf '\n'
+    printf 'PLAN_2MONTH_TITLE=%s\n'   "${ANSWERS[PLAN_2MONTH_TITLE]}"
+    printf 'PLAN_2MONTH_DAYS=%s\n'    "${ANSWERS[PLAN_2MONTH_DAYS]}"
+    printf 'PLAN_2MONTH_PRICE=%s\n'   "${ANSWERS[PLAN_2MONTH_PRICE]}"
+    printf '\n'
+
+    printf '# ============================================================\n'
+    printf '#  Пополнение через Telegram Stars (номиналы в звёздах)\n'
+    printf '# ============================================================\n'
+    printf 'STARS_TOPUP_AMOUNTS=%s\n' "${ANSWERS[STARS_TOPUP_AMOUNTS]}"
     printf '\n'
 
     printf '# ============================================================\n'
@@ -511,7 +583,7 @@ generate_env() {
   ok ".env создан (права 600)"
 }
 
-# ---------- Сводка перед записью ----------
+# ---------- Сводка ----------
 show_summary() {
   echo
   echo "${BOLD}=== Сводка ===${NC}"
@@ -523,6 +595,17 @@ show_summary() {
   echo "  REMNAWAVE_TOKEN:      ${ANSWERS[REMNAWAVE_API_TOKEN]:0:10}…"
   echo "  SSL verify:           ${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
   echo "  Версия Remnawave:     ${ANSWERS[REMNAWAVE_API_GENERATION]}"
+  echo
+  echo "  ${BOLD}Цены:${NC}"
+  echo "    ${ANSWERS[PLAN_TRIAL_TITLE]}: ${ANSWERS[PLAN_TRIAL_PRICE]}★ / ${ANSWERS[PLAN_TRIAL_DAYS]}д"
+  echo "    ${ANSWERS[PLAN_WEEK_TITLE]}: ${ANSWERS[PLAN_WEEK_PRICE]}★ / ${ANSWERS[PLAN_WEEK_DAYS]}д"
+  echo "    ${ANSWERS[PLAN_MONTH_TITLE]}: ${ANSWERS[PLAN_MONTH_PRICE]}★ / ${ANSWERS[PLAN_MONTH_DAYS]}д"
+  echo "    ${ANSWERS[PLAN_2MONTH_TITLE]}: ${ANSWERS[PLAN_2MONTH_PRICE]}★ / ${ANSWERS[PLAN_2MONTH_DAYS]}д"
+  echo
+  echo "  ${BOLD}Пополнение:${NC}"
+  echo "    Stars:    ${ANSWERS[STARS_TOPUP_AMOUNTS]}"
+  echo "    Platega:  ${ANSWERS[PLATEGA_TOPUPS]}"
+  echo
   echo "  Инфо-канал:           ${ANSWERS[INFO_CHANNEL_USERNAME]:-(выкл)}"
   echo "  Партнёрская Stars:    ${ANSWERS[STARS_PARTNER_URL]:-(выкл)}"
   echo "  Platega:              $( [[ -n "${ANSWERS[PLATEGA_MERCHANT_ID]}" ]] && echo "вкл (${ANSWERS[PLATEGA_MERCHANT_ID]})" || echo "выкл" )"
@@ -538,15 +621,12 @@ show_summary() {
   [[ "${ANSWERS[CONFIRM]}" == "y" ]] || die "Отменено пользователем."
 }
 
-# ---------- venv + зависимости ----------
+# ---------- venv ----------
 setup_venv() {
   cd "$INSTALL_DIR"
 
   [[ -f requirements.txt ]] || die "Нет requirements.txt в $INSTALL_DIR"
 
-  # ---- Проверка целостности существующего venv ----
-  # Venv не переносимый: если папку скопировали/переименовали,
-  # shebang в bin/pip указывает на несуществующий путь.
   if [[ -d venv ]]; then
     local venv_ok=1
 
@@ -568,13 +648,12 @@ setup_venv() {
       if [[ "$pip_shebang" != "$expected_shebang"* ]]; then
         venv_ok=0
         warn "shebang pip указывает не туда: $pip_shebang"
-        warn "Ожидалось начало: $expected_shebang"
       fi
     fi
 
     if [[ "$venv_ok" == "0" ]]; then
       local backup="venv.broken.$(date +%s)"
-      warn "venv нерабочий — пересоздаю. Старый сохранён в $backup"
+      warn "venv нерабочий — пересоздаю. Старый в $backup"
       mv venv "$backup"
     fi
   fi
@@ -587,7 +666,7 @@ setup_venv() {
   fi
 
   ./venv/bin/pip install --upgrade pip >/dev/null
-  log "Ставлю зависимости (может занять минуту)…"
+  log "Ставлю зависимости…"
   ./venv/bin/pip install -r requirements.txt
   ok "Зависимости установлены"
 }
@@ -672,6 +751,7 @@ main() {
     ask_core
     detect_remnawave_version
     ask_brand
+    ask_prices
     ask_info_channel
     ask_stars_partner
     ask_platega
