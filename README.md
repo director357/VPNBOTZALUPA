@@ -232,18 +232,6 @@ sudo systemctl stop vpn-bot-remnawave
 sudo systemctl start vpn-bot-remnawave
 ```
 
-### Обновление бота
-
-```bash
-cd /root/vpn_bot_remnawave
-git pull
-sudo bash install.sh   # ответь «n» на вопрос про .env
-```
-
-Installer увидит существующий `.env` и venv — обновит зависимости и перезапустит сервис.
-
----
-
 ## 💳 Интеграция Platega
 
 Если хочешь принимать оплату картой/СБП, нужен **публичный HTTPS-эндпоинт** для callback'ов.
@@ -492,14 +480,6 @@ sudo journalctl -u vpn-bot-remnawave -n 100 --no-pager | grep -iE "error|excepti
 
 Если видишь `Cannot connect to host api.telegram.org:443` — проверь firewall и DNS на VPS.
 
-### Пользователи жалуются, что «VPN отваливается»
-
-```bash
-# Проверь, что все подписки активны в Remnawave
-sqlite3 vpn_bot.db "SELECT id, marzban_username, end_at, is_active FROM subscriptions WHERE is_active = 1 ORDER BY end_at;"
-```
-
-Затем через админ-панель бота: **Управление подписками** → `+7д` если нужно продлить.
 
 ---
 
