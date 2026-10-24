@@ -47,7 +47,7 @@ def _headers() -> dict[str, str]:
 
 
 def get_topups() -> list[TopupOption]:
-    from prices import PLATEGA_TOPUPS_DEFAULT, platega_topups_default_string
+    from prices import platega_topups_default_string
 
     raw = _env("PLATEGA_TOPUPS", platega_topups_default_string())
     result: list[TopupOption] = []
