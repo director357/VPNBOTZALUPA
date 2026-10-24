@@ -25,12 +25,22 @@
 - Админ управляет пользователями, балансами и подписками прямо из бота.
 - Все ошибки и бизнес-события уходят во **второго бота** (опционально) — ты всегда знаешь, что происходит.
 
-**VPN bot ZALUPA это вам не бедолага, поняли да?**
+
+**VPN bot ZALUPA это вам не бедолага, поняли да?:)**
 
 ---
+## 💬 Поддержка и сообщество
 
-## ✨ Возможности
+Вопросы, баги, обсуждения, новости — всё в нашем Telegram-чате:
 
+<div align="center">
+
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/zalupabotvpn)
+
+**[👉 t.me/zalupabotvpn](https://t.me/zalupabotvpn)**
+
+</div>
+---
 ### 👤 Для пользователей
 
 | Возможность | Описание |
