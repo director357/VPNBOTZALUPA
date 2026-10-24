@@ -38,9 +38,9 @@
 
 <div align="center">
 
-[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/vpnbotzalupa-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
 
-**[👉 t.me/zalupabotvpn](https://t.me/vpnbotzalupa))**
+**[👉 t.me/vpnbotzalupa](https://t.me/vpnbotzalupa))**
 
 </div>
 
@@ -546,7 +546,7 @@ A: Восстанови из бэкапа или пересоздай через
 
 [🐛 Нашёл баг?](https://github.com/director357/vpn_bot_zalupa/issues) · [💡 Есть идея?](https://github.com/director357/vpn_bot_zalupa/issues) · [🍴 Форкни](https://github.com/director357/vpn_bot_zalupa/fork)
 
-[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/vpnbotzalupa-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
 
-**[👉 t.me/zalupabotvpn](https://t.me/vpnbotzalupa)**
+**[👉 t.me/vpnbotzalupa](https://t.me/vpnbotzalupa)**
 </div>
