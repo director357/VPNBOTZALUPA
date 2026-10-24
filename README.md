@@ -1,2 +1,21 @@
-# sell_bot_tg
- Продажа подписок, Пополнение баланса: Telegram Stars + Platega, Реферальная программа, Управление подписками через Remnawave API, QR-коды и кнопки «Скопировать ссылку», Автопродление и напоминания, Админ-панель: пользователи, баланс, подписки, рассылка, AntiFlood middleware,Уведомления во второго бота (опционально)
+# VPN Bot
+
+Telegram-бот для продажи VPN-подписок через Remnawave.
+Оплата: Telegram Stars + Platega (опционально).
+
+## Установка
+
+```bash
+git clone <repo> vpn_bot
+cd vpn_bot
+sudo bash install.sh
+```
+
+Installer спросит все нужные переменные, создаст `.env`, поднимет systemd-сервис.
+
+## Управление
+
+```bash
+systemctl {start|stop|restart|status} vpn-bot-remnawave
+journalctl -u vpn-bot-remnawave -f
+```
