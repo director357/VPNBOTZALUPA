@@ -172,6 +172,26 @@ ADMIN_ID=123456789
 SUPPORT_USERNAME=support_channel
 BRAND_NAME=MyVPN
 
+# Цены тарифов (в звёздах)
+PLAN_TRIAL_TITLE=Пробный 3 дня
+PLAN_TRIAL_DAYS=3
+PLAN_TRIAL_PRICE=0
+
+PLAN_WEEK_TITLE=7 дней
+PLAN_WEEK_DAYS=7
+PLAN_WEEK_PRICE=25
+
+PLAN_MONTH_TITLE=30 дней
+PLAN_MONTH_DAYS=30
+PLAN_MONTH_PRICE=50
+
+PLAN_2MONTH_TITLE=60 дней
+PLAN_2MONTH_DAYS=60
+PLAN_2MONTH_PRICE=100
+
+# Пополнение через Stars
+STARS_TOPUP_AMOUNTS=25,50,100,200
+
 # Remnawave
 REMNAWAVE_URL=https://panel.example.com
 REMNAWAVE_API_TOKEN=rw_api_xxxxxxxxxxxxxxxxxxxxxxxx
@@ -180,7 +200,7 @@ REMNAWAVE_SSL_VERIFY=true
 # Platega (опционально)
 PLATEGA_MERCHANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 PLATEGA_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-PLATEGA_TOPUPS=100:25,200:50,400:100,800:200
+PLATEGA_TOPUPS=100:50,200:100,400:200,800:400
 
 # Фоновые процессы
 BACKGROUND_WORKER_ENABLED=true
@@ -354,10 +374,26 @@ db.process_platega_status (BEGIN IMMEDIATE)
 | **`.env` права** | `chmod 600` при установке и перезапуске |
 
 ### Рекомендуется дополнительно
-
-- 🔐 Включить `ufw` и закрыть все порты кроме 22, 80, 443
-- 🔐 Использовать **только HTTPS** для Platega callback (nginx + Let's Encrypt)
 - 🔐 Регулярно делать бэкап `vpn_bot.db` (cron + `sqlite3 .backup`)
+
+---
+💰 Цены и тарифы
+
+Все цены задаются в .env в звёздах (★) и автоматически применяются к:
+
+    кнопкам «Купить подписку»
+
+    кнопкам «Продлить» / «Перейти на платный»
+
+    тексту меню покупки
+
+    сумме списания с баланса при покупке/продлении
+
+    суммам пополнения через Telegram Stars
+
+    суммам пополнения через Platega
+
+Меняешь цену в .env → перезапускаешь бота → UI обновился. Код править не нужно.
 
 ---
 
