@@ -99,8 +99,8 @@
 
 ```bash
 # 1. Клонируй репозиторий
-git clone https://github.com/director357/VPN_BOT_ZALUPA.git
-cd zalupabot
+git clone https://github.com/director357/vpn_bot_zalupa.git
+cd vpn_bot_zalupa
 
 # 2. Запусти установщик
 sudo bash install.sh
