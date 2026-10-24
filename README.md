@@ -340,7 +340,6 @@ db.process_platega_status (BEGIN IMMEDIATE)
 |---|---|
 | **Секреты** | Только через `.env`, никогда в коде. `.gitignore` защищает от коммита |
 | **IDOR** | Все callback'и с `sub_id` проверяют владельца через `sub["user_id"] == user_row["id"]` |
-| **SQL-инъекции** | Все запросы параметризованы (`?`) |
 | **XSS в Telegram** | Пользовательские данные в HTML-сообщениях проходят через `html.escape()` |
 | **Идемпотентность Stars** | `telegram_payment_charge_id` UNIQUE + `BEGIN IMMEDIATE` |
 | **Идемпотентность Platega** | `transaction_id` PRIMARY KEY + `BEGIN IMMEDIATE` |
@@ -353,7 +352,6 @@ db.process_platega_status (BEGIN IMMEDIATE)
 - 🔐 Включить `ufw` и закрыть все порты кроме 22, 80, 443
 - 🔐 Использовать **только HTTPS** для Platega callback (nginx + Let's Encrypt)
 - 🔐 Регулярно делать бэкап `vpn_bot.db` (cron + `sqlite3 .backup`)
-- 🔐 Держать `RECONCILE_AUTO_FIX=false`, если не уверен в поведении
 
 ---
 
@@ -384,17 +382,9 @@ ImportError                          ← нет зависимости
 NameError                            ← опечатка
 Conflict: terminated by other getUpdates request  ← запущено 2 процесса
 ```
-
-### Проверить в Telegram
-
-1. `/start` — должно открыться главное меню
-2. `/help` — заголовок должен содержать **твой** `BRAND_NAME`, а не `{BRAND_NAME}`
-3. «Мои подписки» → «Конфиг #1» (если есть активная) — должен прийти URL + QR
-4. «Пополнить баланс» → «Оплатить через Stars» → выбери 25★ → проверь, что открывается окно оплаты
-
 ---
 
-## 🩺 Troubleshooting
+## 🩺 Диагностика
 
 ### Бот не запускается — `Conflict: terminated by other getUpdates request`
 
@@ -467,11 +457,6 @@ sqlite3 vpn_bot.db "SELECT id, marzban_username, end_at, is_active FROM subscrip
 
 ## ❓ FAQ
 
-**Q: Можно ли использовать без Remnawave?**
-A: Нет. Бот — это фронт для Remnawave, панель обязательна.
-
-**Q: Работает ли с Marzban?**
-A: Адаптер `remna.py` написан под Remnawave 2.8.x. Для Marzban нужна адаптация.
 
 **Q: Как сменить бренд?**
 A: В `.env` задай `BRAND_NAME=MyVPN` и перезапусти бота.
@@ -515,7 +500,6 @@ A: Восстанови из бэкапа или пересоздай через
 ## 🙏 Благодарности
 
 - [Remnawave](https://docs.rw) — за отличную VPN-панель
-- [aiogram](https://aiogram.dev) — за лучший async-фреймворк для ботов
 - Всем, кто форкает и делает бота лучше
 
 ---
@@ -524,6 +508,6 @@ A: Восстанови из бэкапа или пересоздай через
 
 **Если проект оказался полезным — поставь ⭐ на GitHub**
 
-[🐛 Нашёл баг?](https://github.com/your-name/sell_bot_tg/issues) · [💡 Есть идея?](https://github.com/your-name/sell_bot_tg/issues) · [🍴 Форкни](https://github.com/your-name/sell_bot_tg/fork)
+[🐛 Нашёл баг?](https://github.com/director357/sell_bot_tg/issues) · [💡 Есть идея?](https://github.com/director357/sell_bot_tg/issues) · [🍴 Форкни](https://github.com/director357/sell_bot_tg/fork)
 
 </div>
