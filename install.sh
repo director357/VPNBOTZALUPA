@@ -185,6 +185,87 @@ ask_core() {
       "${ANSWERS[REMNAWAVE_URL]}" n n
 }
 
+# ---------- Автоопределение версии Remnawave ----------
+detect_remnawave_generation() {
+  echo
+  echo "${BOLD}=== Определение версии Remnawave ===${NC}"
+  echo
+
+  local url="${ANSWERS[REMNAWAVE_URL]}"
+  local token="${ANSWERS[REMNAWAVE_API_TOKEN]}"
+  local verify="${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
+
+  log "Запрашиваю /api/system/metadata…"
+
+  local response
+  response=$(
+    "$PYTHON_BIN" - "$url" "$token" "$verify" <<'PYEOF' 2>/dev/null
+import json
+import ssl
+import sys
+import urllib.request
+
+url, token, verify = sys.argv[1], sys.argv[2], sys.argv[3]
+endpoint = url.rstrip("/") + "/api/system/metadata"
+
+req = urllib.request.Request(
+    endpoint,
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/json",
+    },
+)
+ctx = None if verify == "true" else ssl._create_unverified_context()
+
+try:
+    with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+        payload = json.loads(raw)
+        response_obj = payload.get("response") if isinstance(payload, dict) else payload
+        version = ""
+        if isinstance(response_obj, dict):
+            version = str(response_obj.get("version") or "")
+        print(version)
+except Exception:
+    sys.exit(1)
+PYEOF
+  )
+
+  local generation=""
+  local detected_version=""
+
+  if [[ -n "$response" ]]; then
+    detected_version="$response"
+    local major="${detected_version%%.*}"
+    if [[ "$major" =~ ^[0-9]+$ ]] && (( major >= 3 )); then
+      generation="3.x+"
+    else
+      generation="2.x"
+    fi
+    ok "Remnawave версия: ${detected_version} → поколение API: ${generation}"
+  else
+    warn "Не удалось определить версию автоматически."
+    warn "Возможные причины: нет сети, неверный API-токен, SSL-ошибка, панель недоступна."
+    warn "Можно указать поколение вручную."
+    ANSWERS[REMNAWAVE_API_GENERATION]=""
+    ask_choice REMNAWAVE_API_GENERATION \
+        "Поколение API Remnawave (2.x = uuid, 3.x+ = numeric id):" \
+        "2.x 3.x+" "2.x"
+    return 0
+  fi
+
+  ANSWERS[REMNAWAVE_API_GENERATION]="$generation"
+
+  ask_yes_no CONFIRM_GENERATION \
+      "Поколение API ${generation} определено верно?" "y"
+
+  if [[ "${ANSWERS[CONFIRM_GENERATION]}" != "y" ]]; then
+    ask_choice REMNAWAVE_API_GENERATION \
+        "Укажи поколение API вручную (2.x = uuid, 3.x+ = numeric id):" \
+        "2.x 3.x+" "$generation"
+  fi
+}
+
 # ---------- Диалог: бренд ----------
 ask_brand() {
   echo
@@ -369,6 +450,7 @@ generate_env() {
     printf 'REMNAWAVE_API_TOKEN=%s\n'              "${ANSWERS[REMNAWAVE_API_TOKEN]}"
     printf 'REMNAWAVE_INTERNAL_SQUAD_UUID=%s\n'    "${ANSWERS[REMNAWAVE_INTERNAL_SQUAD_UUID]}"
     printf 'REMNAWAVE_SSL_VERIFY=%s\n'             "${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
+    printf 'REMNAWAVE_API_GENERATION=%s\n'         "${ANSWERS[REMNAWAVE_API_GENERATION]}"
     printf 'REMNAWAVE_SUBSCRIPTION_BASE_URL=%s\n'  "${ANSWERS[REMNAWAVE_SUBSCRIPTION_BASE_URL]}"
     printf '\n'
 
@@ -417,6 +499,7 @@ show_summary() {
   echo "  REMNAWAVE_URL:        ${ANSWERS[REMNAWAVE_URL]}"
   echo "  REMNAWAVE_TOKEN:      ${ANSWERS[REMNAWAVE_API_TOKEN]:0:10}…"
   echo "  SSL verify:           ${ANSWERS[REMNAWAVE_SSL_VERIFY]}"
+  echo "  Remnawave поколение:  ${ANSWERS[REMNAWAVE_API_GENERATION]}"
   echo "  Инфо-канал:           ${ANSWERS[INFO_CHANNEL_USERNAME]:-(выкл)}"
   echo "  Партнёрская Stars:    ${ANSWERS[STARS_PARTNER_URL]:-(выкл)}"
   echo "  Platega:              $( [[ -n "${ANSWERS[PLATEGA_MERCHANT_ID]}" ]] && echo "вкл (${ANSWERS[PLATEGA_MERCHANT_ID]})" || echo "выкл" )"
@@ -444,21 +527,16 @@ setup_venv() {
   if [[ -d venv ]]; then
     local venv_ok=1
 
-    # 1) pip должен запускаться
     if ! ./venv/bin/pip --version >/dev/null 2>&1; then
       venv_ok=0
       warn "venv/bin/pip не запускается"
     fi
 
-    # 2) python в venv должен запускаться
     if [[ "$venv_ok" == "1" ]] && ! ./venv/bin/python -c "import sys" >/dev/null 2>&1; then
       venv_ok=0
       warn "venv/bin/python не запускается"
     fi
 
-    # 3) shebang pip должен указывать внутрь ЭТОГО venv.
-    # Ловит случай, когда pip работает, но через чужой venv
-    # (например, когда папку скопировали, а старая осталась жива).
     if [[ "$venv_ok" == "1" ]]; then
       local pip_shebang
       pip_shebang=$(head -1 ./venv/bin/pip 2>/dev/null || echo "")
@@ -478,7 +556,6 @@ setup_venv() {
     fi
   fi
 
-  # ---- Создание/обновление venv ----
   if [[ -d venv ]]; then
     log "venv рабочий — обновляю зависимости"
   else
@@ -570,6 +647,7 @@ main() {
 
   if [[ "${SKIP_ENV}" != "1" ]]; then
     ask_core
+    detect_remnawave_generation
     ask_brand
     ask_info_channel
     ask_stars_partner
