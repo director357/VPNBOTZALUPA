@@ -99,7 +99,7 @@
 
 ```bash
 # 1. Клонируй репозиторий
-git clone https://github.com/director357/zalupabot.git
+git clone https://github.com/director357/VPN_BOT_ZALUPA.git
 cd zalupabot
 
 # 2. Запусти установщик
