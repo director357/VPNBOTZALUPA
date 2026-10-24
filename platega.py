@@ -49,9 +49,9 @@ def _headers() -> dict[str, str]:
 def get_topups() -> list[TopupOption]:
     """
     Формат PLATEGA_TOPUPS: RUB:CREDIT,RUB:CREDIT
-    Пример: 100:25,200:50,400:100,800:200
+    Пример: 100:50,200:100,400:200,800:400
     """
-    raw = _env("PLATEGA_TOPUPS", "100:25,200:50,400:100,800:200")
+    raw = _env("PLATEGA_TOPUPS", "100:50,200:100,400:200,800:400")
     result: list[TopupOption] = []
     for part in raw.split(","):
         part = part.strip()
