@@ -1,3 +1,12 @@
+import platega
+from prices import (
+    PLANS,
+    STARS_TOPUP_AMOUNTS,
+    get_plan,
+    get_plan_title,
+    get_plan_price,
+    plan_price_label,
+)
 import contextlib
 import asyncio
 import logging
@@ -161,34 +170,6 @@ async def _get_bot_username(bot: Bot) -> str:
     me = await bot.get_me()
     _BOT_USERNAME = (me.username or "").strip("@")
     return _BOT_USERNAME
-
-# Планы
-PLANS: Dict[str, Dict[str, Any]] = {
-    "trial_3d": {
-        "title": "Пробный 3 дня",
-        "days": 3,
-        "price": 0,
-        "is_trial": True,
-    },
-    "week_7d": {
-        "title": "7 дней",
-        "days": 7,
-        "price": 25,
-        "is_trial": False,
-    },
-    "month_30d": {
-        "title": "30 дней",
-        "days": 30,
-        "price": 50,
-        "is_trial": False,
-    },
-    "month_60d": {
-        "title": "60 дней",
-        "days": 60,
-        "price": 100,
-        "is_trial": False,
-    },
-}
 
 MAX_ACTIVE_SUBS = 3
 
@@ -602,15 +583,20 @@ async def main_menu_router(callback: CallbackQuery):
         await safe_edit(callback, text, reply_markup=back_to_main_kb())
 
     elif action == "buy":
-        text = (
-            f"{ce('buy_card', '🛒')} Выбери тариф:\n\n"
-            "Пробный 3 дня — 0★ (один раз на аккаунт)\n"
-            "7 дней — 25★\n"
-            "30 дней — 50★\n"
-            "60 дней — 100★\n\n"
-            "Нажимая «Купить», вы принимаете:\n\n"
-            + LEGAL_LINKS_TEXT
-        )
+        lines = [f"{ce('buy_card', '🛒')} Выбери тариф:\n"]
+        for plan_key, plan in PLANS.items():
+            title = plan["title"]
+            price = int(plan["price"])
+            if bool(plan.get("is_trial")) or price == 0:
+                lines.append(f"{title} — 0★ (один раз на аккаунт)")
+            else:
+                lines.append(f"{title} — {price}★")
+        lines.append("")
+        lines.append("Нажимая «Купить», вы принимаете:")
+        lines.append("")
+        lines.append(LEGAL_LINKS_TEXT)
+        
+        text = "\n".join(lines)
         await safe_edit(callback, text, reply_markup=buy_menu_kb())
 
     elif action == "subs":
@@ -813,7 +799,7 @@ async def platega_check_callback(callback: CallbackQuery):
         await callback.answer("Платёж пока ожидает подтверждения.", show_alert=True)
 
 
-TOPUP_AMOUNTS = {25, 50, 100, 200}
+TOPUP_AMOUNTS = set(STARS_TOPUP_AMOUNTS)
 
 
 @router.callback_query(F.data.startswith("topup:"))
@@ -1940,20 +1926,37 @@ async def sub_extend(callback: CallbackQuery):
     plan_key = sub["plan_key"]
     is_trial = bool(sub["is_trial"])
 
-    if is_trial:
-        # Для триала предлагаем сразу выбрать платный тариф
-        from aiogram.types import InlineKeyboardMarkup
+   if is_trial:
+    from aiogram.types import InlineKeyboardMarkup
 
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    kb_button("7 дней (25★)", callback_data=f"extendplan:{sub_id}:week_7d", emoji_key="buy"),
-                    kb_button("30 дней (50★)", callback_data=f"extendplan:{sub_id}:month_30d", emoji_key="buy"),
-                ],
-                [kb_button("60 дней (100★)", callback_data=f"extendplan:{sub_id}:month_60d", emoji_key="buy")],
-                [kb_button("Назад к списку", callback_data="subs:list", emoji_key="subs")],
-            ]
+    # Берём все платные тарифы из PLANS и генерируем по кнопке на каждый
+    paid_plan_keys = [
+        k for k, p in PLANS.items() if not bool(p.get("is_trial"))
+    ]
+
+    rows: List[List[InlineKeyboardButton]] = []
+    pair: List[InlineKeyboardButton] = []
+    for plan_key in paid_plan_keys:
+        plan = PLANS[plan_key]
+        label = f"{plan['title']} ({plan['price']}★)"
+        pair.append(
+            kb_button(
+                label,
+                callback_data=f"extendplan:{sub_id}:{plan_key}",
+                emoji_key="buy",
+            )
         )
+        if len(pair) == 2:
+            rows.append(pair)
+            pair = []
+    if pair:
+        rows.append(pair)
+
+    rows.append([
+        kb_button("Назад к списку", callback_data="subs:list", emoji_key="subs")
+    ])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
         await callback.message.answer(
             "Это пробная подписка. Выбери тариф, на который хочешь её продлить:",
             reply_markup=kb,
