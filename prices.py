@@ -1,22 +1,16 @@
 """Единый источник правды по ценам, тарифам и суммам пополнения.
 
-Здесь настраивается:
-  • PLANS — тарифы подписок (title, days, price в звёздах, is_trial)
-  • STARS_TOPUP_AMOUNTS — доступные номиналы пополнения через Telegram Stars
-  • PLATEGA_TOPUPS_DEFAULT — дефолтные пары (RUB, STARS) для Platega
+Значения читаются из .env, если там заданы, иначе используются
+дефолты из этого файла. Это позволяет менять цены без правки кода —
+install.sh спрашивает их при установке и пишет в .env.
 
-Изменения здесь автоматически применяются к:
-  • кнопкам «Купить подписку», «Продлить», «Перейти на платный» — keyboards.py, handlers.py
-  • тексту меню покупки тарифов — handlers.py
-  • сумме списания при покупке/продлении — handlers.py
-  • кнопкам пополнения через Stars — keyboards.py
-  • суммам пополнения через Platega — platega.py
-
-Для Platega можно переопределить через .env:
-  PLATEGA_TOPUPS=100:50,200:100,400:200,800:400
-
-Для Stars можно переопределить через .env:
-  STARS_TOPUP_AMOUNTS=25,50,100,200
+Переопределяемые переменные:
+  PLAN_TRIAL_TITLE / PLAN_TRIAL_DAYS / PLAN_TRIAL_PRICE      (trial_3d)
+  PLAN_WEEK_TITLE  / PLAN_WEEK_DAYS  / PLAN_WEEK_PRICE       (week_7d)
+  PLAN_MONTH_TITLE / PLAN_MONTH_DAYS / PLAN_MONTH_PRICE      (month_30d)
+  PLAN_2MONTH_TITLE/ PLAN_2MONTH_DAYS/ PLAN_2MONTH_PRICE     (month_60d)
+  STARS_TOPUP_AMOUNTS
+  PLATEGA_TOPUPS
 """
 
 from __future__ import annotations
@@ -26,41 +20,55 @@ from typing import Any, Dict, List, Tuple
 
 
 # ==========================================================================
+# Хелперы чтения из env с дефолтами
+# ==========================================================================
+
+def _env_str(name: str, default: str) -> str:
+    raw = os.getenv(name, "").strip()
+    return raw or default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return int(default)
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return int(default)
+    return value
+
+
+# ==========================================================================
 # Тарифы подписок
 # ==========================================================================
-# Ключ — внутренний идентификатор (латиница, без пробелов).
-# Значение:
-#   title    — что видно пользователю
-#   days     — длительность в днях
-#   price    — сколько ★ списывается (0 для триала)
-#   is_trial — True, если это пробный тариф (можно активировать 1 раз)
-#
-# Порядок в словаре определяет порядок кнопок в меню «Купить подписку».
+# Ключ — внутренний идентификатор (не меняется, чтобы не сломать БД и callback'и).
+# title/days/price читаются из env, чтобы install.sh мог их переопределить.
 # ==========================================================================
 
 PLANS: Dict[str, Dict[str, Any]] = {
     "trial_3d": {
-        "title": "Пробный 3 дня",
-        "days": 3,
-        "price": 0,
+        "title": _env_str("PLAN_TRIAL_TITLE", "Пробный 3 дня"),
+        "days": _env_int("PLAN_TRIAL_DAYS", 3),
+        "price": _env_int("PLAN_TRIAL_PRICE", 0),
         "is_trial": True,
     },
     "week_7d": {
-        "title": "7 дней",
-        "days": 7,
-        "price": 25,
+        "title": _env_str("PLAN_WEEK_TITLE", "7 дней"),
+        "days": _env_int("PLAN_WEEK_DAYS", 7),
+        "price": _env_int("PLAN_WEEK_PRICE", 25),
         "is_trial": False,
     },
     "month_30d": {
-        "title": "30 дней",
-        "days": 30,
-        "price": 50,
+        "title": _env_str("PLAN_MONTH_TITLE", "30 дней"),
+        "days": _env_int("PLAN_MONTH_DAYS", 30),
+        "price": _env_int("PLAN_MONTH_PRICE", 50),
         "is_trial": False,
     },
     "month_60d": {
-        "title": "60 дней",
-        "days": 60,
-        "price": 100,
+        "title": _env_str("PLAN_2MONTH_TITLE", "60 дней"),
+        "days": _env_int("PLAN_2MONTH_DAYS", 60),
+        "price": _env_int("PLAN_2MONTH_PRICE", 100),
         "is_trial": False,
     },
 }
@@ -69,9 +77,7 @@ PLANS: Dict[str, Dict[str, Any]] = {
 # ==========================================================================
 # Пополнение через Telegram Stars
 # ==========================================================================
-# Номиналы в звёздах. Здесь 1★ = 1★, без курса — пользователь платит
-# ровно столько звёзд, сколько получит на баланс.
-#
+# Номиналы в звёздах. 1★ = 1★, без курса.
 # Переопределяется через env: STARS_TOPUP_AMOUNTS=25,50,100,200
 # ==========================================================================
 
@@ -95,7 +101,6 @@ def _parse_stars_topup_env() -> List[int]:
         if value > 0:
             result.append(value)
 
-    # fallback на дефолт, если после парсинга ничего не осталось
     return result or list(_STARS_TOPUP_DEFAULT)
 
 
@@ -105,12 +110,8 @@ STARS_TOPUP_AMOUNTS: List[int] = _parse_stars_topup_env()
 # ==========================================================================
 # Пополнение через Platega (карта / СБП)
 # ==========================================================================
-# Список пар (RUB, STARS):
-#   100 ₽ → 50★
-#   200 ₽ → 100★
-#   ...
-#
-# Здесь задаются только ДЕФОЛТЫ. В platega.py читается env PLATEGA_TOPUPS,
+# Список пар (RUB, STARS).
+# Здесь заданы только ДЕФОЛТЫ. В platega.py читается env PLATEGA_TOPUPS,
 # и если он задан — используется он, а не этот список.
 # ==========================================================================
 
@@ -128,7 +129,7 @@ def platega_topups_default_string() -> str:
 
 
 # ==========================================================================
-# Хелперы — чтобы не писать PLANS.get(...) в каждом месте
+# Хелперы для handlers.py
 # ==========================================================================
 
 def get_plan(key: str) -> Dict[str, Any] | None:
@@ -137,7 +138,7 @@ def get_plan(key: str) -> Dict[str, Any] | None:
 
 def get_plan_title(key: str) -> str:
     plan = PLANS.get(key)
-    return plan["title"] if plan else key
+    return str(plan["title"]) if plan else key
 
 
 def get_plan_price(key: str) -> int:
@@ -151,7 +152,6 @@ def get_plan_days(key: str) -> int:
 
 
 def plan_price_label(key: str) -> str:
-    """Форматирует '50★' или '0★ (бесплатно)' для текстов/кнопок."""
     plan = PLANS.get(key)
     if not plan:
         return "—"
