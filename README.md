@@ -285,7 +285,7 @@ PLATEGA_TOPUPS=100:50,200:100,400:200,800:400
 sudo systemctl restart vpn-bot-remnawave
 ```
 
-Проверка здоровья callback-сервера:
+Проверка callback-сервера:
 
 ```bash
 curl http://127.0.0.1:8088/platega/health
