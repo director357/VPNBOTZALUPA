@@ -438,8 +438,49 @@ setup_venv() {
 
   [[ -f requirements.txt ]] || die "Нет requirements.txt в $INSTALL_DIR"
 
+  # ---- Проверка целостности существующего venv ----
+  # Venv не переносимый: если папку скопировали/переименовали,
+  # shebang в bin/pip указывает на несуществующий путь.
   if [[ -d venv ]]; then
-    log "venv уже есть — обновляю зависимости"
+    local venv_ok=1
+
+    # 1) pip должен запускаться
+    if ! ./venv/bin/pip --version >/dev/null 2>&1; then
+      venv_ok=0
+      warn "venv/bin/pip не запускается"
+    fi
+
+    # 2) python в venv должен запускаться
+    if [[ "$venv_ok" == "1" ]] && ! ./venv/bin/python -c "import sys" >/dev/null 2>&1; then
+      venv_ok=0
+      warn "venv/bin/python не запускается"
+    fi
+
+    # 3) shebang pip должен указывать внутрь ЭТОГО venv.
+    # Ловит случай, когда pip работает, но через чужой venv
+    # (например, когда папку скопировали, а старая осталась жива).
+    if [[ "$venv_ok" == "1" ]]; then
+      local pip_shebang
+      pip_shebang=$(head -1 ./venv/bin/pip 2>/dev/null || echo "")
+      local expected_shebang="#!${INSTALL_DIR}/venv/bin/python"
+
+      if [[ "$pip_shebang" != "$expected_shebang"* ]]; then
+        venv_ok=0
+        warn "shebang pip указывает не туда: $pip_shebang"
+        warn "Ожидалось начало: $expected_shebang"
+      fi
+    fi
+
+    if [[ "$venv_ok" == "0" ]]; then
+      local backup="venv.broken.$(date +%s)"
+      warn "venv нерабочий — пересоздаю. Старый сохранён в $backup"
+      mv venv "$backup"
+    fi
+  fi
+
+  # ---- Создание/обновление venv ----
+  if [[ -d venv ]]; then
+    log "venv рабочий — обновляю зависимости"
   else
     log "Создаю venv"
     "$PYTHON_BIN" -m venv venv
