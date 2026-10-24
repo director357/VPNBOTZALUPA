@@ -2,7 +2,7 @@
 
 # 🛡️ VPN BOT ZALUPA
 
-**Telegram-бот для продажи VPN-подписок через [Remnawave](https://docs.rw)**
+**Telegram-бот для продажи VPN-подписок [Remnawave](https://docs.rw)**
 
 Оплата: **Telegram Stars** · **Platega (карта/СБП)** · Реферальная программа · Автопродление
 
