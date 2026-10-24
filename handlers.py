@@ -1,12 +1,3 @@
-import platega
-from prices import (
-    PLANS,
-    STARS_TOPUP_AMOUNTS,
-    get_plan,
-    get_plan_title,
-    get_plan_price,
-    plan_price_label,
-)
 import contextlib
 import asyncio
 import logging
@@ -14,6 +5,7 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from zoneinfo import ZoneInfo
+
 from aiogram import Router, F, Bot
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
@@ -28,9 +20,18 @@ from aiogram.types import (
 from aiogram.exceptions import TelegramBadRequest
 import qrcode
 from io import BytesIO
+
 import db
 import remna as marzban
 import platega
+from prices import (
+    PLANS,
+    STARS_TOPUP_AMOUNTS,
+    get_plan,
+    get_plan_title,
+    get_plan_price,
+    plan_price_label,
+)
 from keyboards import (
     main_menu_kb,
     back_to_main_kb,
@@ -1915,7 +1916,12 @@ async def sub_extend(callback: CallbackQuery):
     if not await ensure_subscription_callback(callback):
         return
 
-    sub_id = int(callback.data.split(":", 2)[2])
+    try:
+        sub_id = int(callback.data.split(":", 2)[2])
+    except (ValueError, IndexError):
+        await callback.answer("Некорректная подписка.", show_alert=True)
+        return
+
     tg_id = callback.from_user.id
     user_row = db.get_or_create_user(tg_id)
     sub = db.get_subscription_by_id(sub_id)
@@ -1926,37 +1932,41 @@ async def sub_extend(callback: CallbackQuery):
     plan_key = sub["plan_key"]
     is_trial = bool(sub["is_trial"])
 
-   if is_trial:
-    from aiogram.types import InlineKeyboardMarkup
+    if is_trial:
+        from aiogram.types import InlineKeyboardMarkup
 
-    # Берём все платные тарифы из PLANS и генерируем по кнопке на каждый
-    paid_plan_keys = [
-        k for k, p in PLANS.items() if not bool(p.get("is_trial"))
-    ]
+        # Берём все платные тарифы из PLANS и генерируем по кнопке на каждый
+        paid_plan_keys = [
+            k for k, p in PLANS.items() if not bool(p.get("is_trial"))
+        ]
 
-    rows: List[List[InlineKeyboardButton]] = []
-    pair: List[InlineKeyboardButton] = []
-    for plan_key in paid_plan_keys:
-        plan = PLANS[plan_key]
-        label = f"{plan['title']} ({plan['price']}★)"
-        pair.append(
-            kb_button(
-                label,
-                callback_data=f"extendplan:{sub_id}:{plan_key}",
-                emoji_key="buy",
+        rows: List[List[InlineKeyboardButton]] = []
+        pair: List[InlineKeyboardButton] = []
+        for paid_key in paid_plan_keys:
+            paid_plan = PLANS[paid_key]
+            label = f"{paid_plan['title']} ({paid_plan['price']}★)"
+            pair.append(
+                kb_button(
+                    label,
+                    callback_data=f"extendplan:{sub_id}:{paid_key}",
+                    emoji_key="buy",
+                )
             )
-        )
-        if len(pair) == 2:
+            if len(pair) == 2:
+                rows.append(pair)
+                pair = []
+        if pair:
             rows.append(pair)
-            pair = []
-    if pair:
-        rows.append(pair)
 
-    rows.append([
-        kb_button("Назад к списку", callback_data="subs:list", emoji_key="subs")
-    ])
+        rows.append([
+            kb_button(
+                "Назад к списку",
+                callback_data="subs:list",
+                emoji_key="subs",
+            )
+        ])
 
-    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
         await callback.message.answer(
             "Это пробная подписка. Выбери тариф, на который хочешь её продлить:",
             reply_markup=kb,
@@ -1970,8 +1980,8 @@ async def sub_extend(callback: CallbackQuery):
         await callback.answer("Неизвестный тариф для продления.", show_alert=True)
         return
 
-    price = plan["price"]
-    days = plan["days"]
+    price = int(plan["price"])
+    days = int(plan["days"])
 
     balance = db.get_balance(user_row["id"])
     if balance < price:
@@ -1982,7 +1992,7 @@ async def sub_extend(callback: CallbackQuery):
         return
 
     now_utc = int(datetime.now(timezone.utc).timestamp())
-    base = max(sub["end_at"], now_utc)
+    base = max(int(sub["end_at"]), now_utc)
     new_end = base + days * 24 * 60 * 60
 
     # Сначала панель. При ошибке срок и Stars в локальной БД не меняем.
@@ -2011,7 +2021,6 @@ async def sub_extend(callback: CallbackQuery):
 
     await callback.answer("Подписка продлена!", show_alert=False)
     await list_subscriptions(callback)
-
 
 @router.callback_query(F.data.startswith("extendplan:"))
 async def extend_plan_from_trial(callback: CallbackQuery):
