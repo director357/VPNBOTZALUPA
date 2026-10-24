@@ -179,7 +179,6 @@ RECONCILE_ENABLED=true
 RECONCILE_AUTO_FIX=false
 ```
 
-> ⚠️ **Никогда не коммить `.env` в git.** Он в `.gitignore` — не удаляй оттуда.
 
 ---
 
