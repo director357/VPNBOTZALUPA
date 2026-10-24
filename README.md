@@ -244,7 +244,7 @@ PLATEGA_MERCHANT_ID=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 PLATEGA_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 PLATEGA_RETURN_URL=https://t.me/your_bot
 PLATEGA_FAILED_URL=https://t.me/your_bot
-PLATEGA_TOPUPS=100:25,200:50,400:100,800:200
+PLATEGA_TOPUPS=100:50,200:100,400:200,800:400
 ```
 
 ### 4. Перезапусти бота
