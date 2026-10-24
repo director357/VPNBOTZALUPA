@@ -178,10 +178,6 @@ AUTO_RENEW_ENABLED=true
 RECONCILE_ENABLED=true
 RECONCILE_AUTO_FIX=false
 ```
-
-
----
-
 ## 🎮 Управление
 
 ### systemd-команды
@@ -477,7 +473,6 @@ A: Оставь `INFO_CHANNEL_USERNAME` пустым — проверка отк
 **Q: Что делать, если потерял `.env`?**
 A: Восстанови из бэкапа или пересоздай через `install.sh`. Токены придётся ввести заново.
 
----
 ---
 
 ## 📄 Лицензия
