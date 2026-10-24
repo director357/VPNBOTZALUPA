@@ -1,7 +1,18 @@
-"""Совместимый API-адаптер: старый интерфейс marzban.py поверх Remnawave 2.8.x.
+"""Совместимый API-адаптер: старый интерфейс marzban.py поверх Remnawave 2.x и 3.x+.
 
 Остальной бот продолжает вызывать create_user/get_user/modify_user/delete_user,
 поэтому массовая переделка handlers.py не требуется.
+
+Совместимость:
+  • Remnawave 2.x (2.6, 2.7, 2.8) — пользователи идентифицируются по UUID.
+  • Remnawave 3.x+ (3.0, 3.1, 3.2, ...) — пользователи идентифицируются по numeric id.
+
+Поколение определяется автоматически при первом API-запросе через
+GET /api/system/metadata. Опционально можно зафиксировать через env:
+  REMNAWAVE_API_GENERATION=2.x|3.x+
+
+В 3.x+ эндпоинт /api/users/by-username/{username} удалён, поэтому поиск
+пользователя идёт через кешированный список GET /api/users.
 """
 
 from __future__ import annotations
@@ -126,7 +137,21 @@ _NODES_RETRY_DELAY = float(
 )
 _NODES_CACHE: Optional[tuple[float, List[Dict[str, Any]]]] = None
 _NODES_LOCK = asyncio.Lock()
+
+# Кеш списка пользователей (только для 3.x+, где by-username удалён).
+# TTL короткий: должен покрыть один цикл reconcile / batch из ~100 подписок,
+# но при этом не держать устаревшие данные дольше пары секунд.
+_USERS_LIST_CACHE: Optional[tuple[float, List[Dict[str, Any]]]] = None
+_USERS_LIST_CACHE_TTL = float(
+    os.getenv("REMNAWAVE_USERS_CACHE_TTL", "10") or 10
+)
+_USERS_LIST_LOCK = asyncio.Lock()
+
 _SESSION: Optional[aiohttp.ClientSession] = None
+
+# Поколение API: "2.x" (uuid) или "3.x+" (numeric id).
+# Определяется автоматически при первом запросе или задаётся через env.
+_PANEL_GENERATION: Optional[str] = None
 
 
 class RemnawaveAPIError(RuntimeError):
@@ -203,48 +228,78 @@ def _unwrap(data: Any) -> Any:
     return data
 
 
-def _normalize_user_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """Преобразует Remnawave UserResponse в формат, ожидаемый старым ботом."""
-    data = dict(raw or {})
-    short_uuid = str(data.get("shortUuid") or "")
-    subscription_url = _normalize_subscription_url(
-        data.get("subscriptionUrl"), short_uuid
-    )
+# ==========================================================================
+# Совместимость поколений Remnawave 2.x / 3.x+
+# ==========================================================================
 
-    status_map = {
-        "ACTIVE": "active",
-        "DISABLED": "disabled",
-        "LIMITED": "disabled",
-        "EXPIRED": "disabled",
-    }
-    status = status_map.get(str(data.get("status") or "").upper(), "disabled")
+async def _detect_panel_generation() -> str:
+    """Определяет поколение API панели: "2.x" или "3.x+".
 
-    proxies: Dict[str, Dict[str, str]] = {}
-    if data.get("vlessUuid"):
-        proxies["vless"] = {"id": str(data["vlessUuid"])}
-    if data.get("trojanPassword"):
-        proxies["trojan"] = {"password": str(data["trojanPassword"])}
-    if data.get("ssPassword"):
-        proxies["shadowsocks"] = {"password": str(data["ssPassword"])}
+    Приоритет:
+      1. Env REMNAWAVE_API_GENERATION (если задан) — принудительно.
+      2. GET /api/system/metadata → major версии.
+      3. Fallback "2.x" (безопасное поведение, не ломает существующие 2.x).
+    """
+    global _PANEL_GENERATION
+    if _PANEL_GENERATION:
+        return _PANEL_GENERATION
 
-    result = dict(data)
-    result.update(
-        {
-            "username": data.get("username"),
-            "status": status,
-            "expire": _iso_to_epoch(data.get("expireAt")),
-            "subscription_url": subscription_url,
-            "links": [subscription_url] if subscription_url else [],
-            "proxies": proxies,
-            "data_limit": int(float(data.get("trafficLimitBytes") or 0)),
-            "data_limit_reset_strategy": str(
-                data.get("trafficLimitStrategy") or "NO_RESET"
-            ).lower(),
-            "note": data.get("description") or "",
-        }
-    )
-    return result
+    forced = os.getenv("REMNAWAVE_API_GENERATION", "").strip().lower()
+    if forced in {"2.x", "3.x+", "2", "3"}:
+        _PANEL_GENERATION = "3.x+" if forced.startswith("3") else "2.x"
+        logger.info(
+            "Поколение Remnawave задано через env: %s",
+            _PANEL_GENERATION,
+        )
+        return _PANEL_GENERATION
 
+    try:
+        data = await _request(
+            "GET",
+            "/api/system/metadata",
+            timeout=ClientTimeout(total=10),
+        )
+        raw_version = str(_unwrap(data).get("version", ""))
+        match = re.search(r"(?<!\d)(\d+)\.", raw_version)
+        major = int(match.group(1)) if match else 0
+
+        if major >= 3:
+            _PANEL_GENERATION = "3.x+"
+        else:
+            _PANEL_GENERATION = "2.x"
+
+        logger.info(
+            "Обнаружено поколение Remnawave: %s (version=%s)",
+            _PANEL_GENERATION,
+            raw_version or "unknown",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Не удалось определить версию панели (%s) — предполагаю 2.x",
+            exc,
+        )
+        _PANEL_GENERATION = "2.x"
+
+    return _PANEL_GENERATION
+
+
+def _get_user_identifier(raw: Dict[str, Any]) -> str:
+    """Возвращает строковый идентификатор пользователя.
+
+    • 2.x  → uuid (строка UUID).
+    • 3.x+ → id (числовой, приведён к строке).
+
+    Если поколение ещё не определено (маловероятно), используется uuid
+    как безопасный fallback для обратной совместимости.
+    """
+    if _PANEL_GENERATION == "3.x+":
+        return str(raw.get("id", ""))
+    return str(raw.get("uuid", ""))
+
+
+# ==========================================================================
+# HTTP-слой
+# ==========================================================================
 
 async def _get_session() -> aiohttp.ClientSession:
     global _SESSION
@@ -301,9 +356,6 @@ async def _request(
             if allow_404 and response.status == 404:
                 return None
             if response.status not in accepted:
-                # Низкоуровневый адаптер фиксирует детали как WARNING.
-                # Решение об аварийном ERROR принимает вызывающий обработчик,
-                # иначе одно HTTP-событие приходит администратору дважды.
                 logger.warning(
                     "Remnawave request failed: %s %s -> HTTP %s, body=%s, payload=%s",
                     method,
@@ -329,9 +381,108 @@ async def _request(
                     body=text,
                 ) from exc
     except asyncio.TimeoutError as exc:
-        raise RemnawaveAPIError(f"Таймаут запроса Remnawave: {method} {path}") from exc
+        raise RemnawaveAPIError(
+            f"Таймаут запроса Remnawave: {method} {path}"
+        ) from exc
     except aiohttp.ClientError as exc:
-        raise RemnawaveAPIError(f"Ошибка соединения с Remnawave: {exc}") from exc
+        raise RemnawaveAPIError(
+            f"Ошибка соединения с Remnawave: {exc}"
+        ) from exc
+
+
+# ==========================================================================
+# Нормализация payload
+# ==========================================================================
+
+def _normalize_user_payload(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """Преобразует ответ панели в формат, ожидаемый ботом.
+
+    Ключевая совместимость: в возвращаемом словаре всегда есть поле "uuid".
+    Для 3.x+ в него подставляется строковый numeric id — это позволяет
+    всему остальному коду (handlers.py, reconcile.py) работать без изменений.
+    """
+    data = dict(raw or {})
+    short_uuid = str(data.get("shortUuid") or "")
+    subscription_url = _normalize_subscription_url(
+        data.get("subscriptionUrl"), short_uuid
+    )
+
+    status_map = {
+        "ACTIVE": "active",
+        "DISABLED": "disabled",
+        "LIMITED": "disabled",
+        "EXPIRED": "disabled",
+    }
+    status = status_map.get(str(data.get("status") or "").upper(), "disabled")
+
+    proxies: Dict[str, Dict[str, str]] = {}
+    if data.get("vlessUuid"):
+        proxies["vless"] = {"id": str(data["vlessUuid"])}
+    if data.get("trojanPassword"):
+        proxies["trojan"] = {"password": str(data["trojanPassword"])}
+    if data.get("ssPassword"):
+        proxies["shadowsocks"] = {"password": str(data["ssPassword"])}
+
+    result = dict(data)
+    result["uuid"] = _get_user_identifier(raw)
+    result.update(
+        {
+            "username": data.get("username"),
+            "status": status,
+            "expire": _iso_to_epoch(data.get("expireAt")),
+            "subscription_url": subscription_url,
+            "links": [subscription_url] if subscription_url else [],
+            "proxies": proxies,
+            "data_limit": int(float(data.get("trafficLimitBytes") or 0)),
+            "data_limit_reset_strategy": str(
+                data.get("trafficLimitStrategy") or "NO_RESET"
+            ).lower(),
+            "note": data.get("description") or "",
+        }
+    )
+    return result
+
+
+# ==========================================================================
+# Внутренние помощники для пользователей
+# ==========================================================================
+
+async def _fetch_users_list() -> List[Dict[str, Any]]:
+    """Возвращает список всех пользователей с коротким кешем (для 3.x+).
+
+    В Remnawave 3.x эндпоинт /api/users/by-username/{username} удалён,
+    поэтому искать приходится по полному списку. Чтобы не делать полный
+    дамп на каждый get_user (а reconcile вызывает его ~100 раз за цикл),
+    держим список в памяти на несколько секунд.
+    """
+    global _USERS_LIST_CACHE
+
+    now = time.time()
+    if (
+        _USERS_LIST_CACHE
+        and (now - _USERS_LIST_CACHE[0]) < _USERS_LIST_CACHE_TTL
+    ):
+        return _USERS_LIST_CACHE[1]
+
+    async with _USERS_LIST_LOCK:
+        now = time.time()
+        if (
+            _USERS_LIST_CACHE
+            and (now - _USERS_LIST_CACHE[0]) < _USERS_LIST_CACHE_TTL
+        ):
+            return _USERS_LIST_CACHE[1]
+
+        data = await _request(
+            "GET",
+            "/api/users",
+            timeout=_GET_TIMEOUT,
+        )
+        users = _unwrap(data)
+        if not isinstance(users, list):
+            users = []
+        users = [u for u in users if isinstance(u, dict)]
+        _USERS_LIST_CACHE = (time.time(), users)
+        return users
 
 
 async def _get_user_raw(
@@ -339,12 +490,9 @@ async def _get_user_raw(
     *,
     attempts: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Получает пользователя с повтором временных сетевых ошибок.
+    """Получает пользователя по username с учётом поколения панели."""
+    await _detect_panel_generation()
 
-    404 означает, что кандидата действительно нет. Таймаут/обрыв соединения
-    не превращаем в ложный 404: повторяем запрос и после исчерпания попыток
-    пробрасываем ошибку вызывающему коду.
-    """
     candidates = [username]
     sanitized = _sanitize_username(username)
     if sanitized != username:
@@ -358,12 +506,27 @@ async def _get_user_raw(
             if attempt:
                 await asyncio.sleep(_GET_RETRY_DELAY)
             try:
+                if _PANEL_GENERATION == "3.x+":
+                    # 3.x+: by-username удалён, используем кешированный список
+                    users = await _fetch_users_list()
+                    for user in users:
+                        if str(user.get("username")) == candidate:
+                            return user
+                    # Совпадения нет — этого кандидата действительно не существует
+                    break
+
+                # 2.x: by-username как обычно
                 data = await _request(
                     "GET",
                     f"/api/users/by-username/{quote(candidate, safe='')}",
                     allow_404=True,
                     timeout=_GET_TIMEOUT,
                 )
+                if not data:
+                    break
+                user = _unwrap(data)
+                if isinstance(user, dict):
+                    return user
             except RemnawaveAPIError as exc:
                 if exc.status != 0:
                     raise
@@ -377,26 +540,13 @@ async def _get_user_raw(
                 )
                 continue
 
-            # Успешный HTTP 404: этого кандидата нет, переходим к следующему.
-            if not data:
-                break
-
-            user = _unwrap(data)
-            if isinstance(user, dict):
-                return user
-
     if last_error is not None:
         raise last_error
     return None
 
 
 def _is_recoverable_created_user(raw: Dict[str, Any], note: str) -> bool:
-    """Проверяет, что найденная учётка относится к этой операции создания.
-
-    Username в боте детерминированный, а description содержит tg_id и тариф.
-    Это позволяет безопасно восстановиться после ситуации, когда POST уже
-    создал пользователя, но HTTP-ответ потерялся или пришёл после таймаута.
-    """
+    """Проверяет, что найденная учётка относится к этой операции создания."""
     if not isinstance(raw, dict):
         return False
     if not note:
@@ -434,6 +584,10 @@ async def _recover_created_user(
     return None
 
 
+# ==========================================================================
+# Публичный API: users
+# ==========================================================================
+
 async def create_user(
     tg_id: Optional[int] = None,
     plan_key: Optional[str] = None,
@@ -443,6 +597,8 @@ async def create_user(
     note: str = "",
     traffic_limit_bytes: int = 0,
 ) -> Dict[str, Any]:
+    await _detect_panel_generation()
+
     if expire_ts is None:
         raise ValueError("expire_ts is required")
 
@@ -464,17 +620,16 @@ async def create_user(
     if REMNAWAVE_INTERNAL_SQUAD_UUID:
         payload["activeInternalSquads"] = [REMNAWAVE_INTERNAL_SQUAD_UUID]
 
-    # После неоднозначного таймаута предыдущая попытка могла уже создать
-    # пользователя, а локальная SQLite-запись ещё не появилась. Подхватываем
-    # такую учётку и не создаём дубль с новым индексом.
+    # Сбрасываем кеш списка пользователей перед созданием — новый юзер
+    # должен быть виден следующему GET без ожидания TTL.
+    global _USERS_LIST_CACHE
+    _USERS_LIST_CACHE = None
+
     try:
         existing = await _get_user_raw(final_username)
     except RemnawaveAPIError as exc:
         if exc.status != 0:
             raise
-        # Предварительный GET не является изменяющей операцией. Если он
-        # временно недоступен, безопасно продолжаем к POST: username уникален,
-        # а возможный 409 ниже будет сверён и восстановлен без дублей.
         logger.warning(
             "Предварительная проверка пользователя %s не ответила; "
             "продолжаю идемпотентное создание",
@@ -503,9 +658,6 @@ async def create_user(
             timeout=_CREATE_TIMEOUT,
         )
     except RemnawaveAPIError as exc:
-        # status=0 означает timeout/обрыв связи: сервер мог применить POST.
-        # При 409 тоже проверяем, не является ли это результатом прошлой
-        # неоднозначной попытки.
         if exc.status in {0, 409}:
             recovered = await _recover_created_user(final_username, note)
             if recovered:
@@ -518,6 +670,10 @@ async def create_user(
         if recovered:
             return _normalize_user_payload(recovered)
         raise RemnawaveAPIError("Remnawave не вернул созданного пользователя")
+
+    # После успешного создания кеш снова инвалидируем — следующий поиск
+    # должен видеть созданную учётку без задержки.
+    _USERS_LIST_CACHE = None
     return _normalize_user_payload(raw)
 
 
@@ -535,101 +691,132 @@ async def modify_user(
     status: Optional[str] = None,
     traffic_limit_bytes: Optional[int] = None,
 ) -> Dict[str, Any]:
+    await _detect_panel_generation()
+
     raw = await _get_user_raw(username)
     if not raw:
-        raise RemnawaveAPIError(f"Пользователь {username!r} не найден", status=404)
+        raise RemnawaveAPIError(
+            f"Пользователь {username!r} не найден", status=404
+        )
 
-    user_uuid = str(raw.get("uuid") or "")
-    if not user_uuid:
-        raise RemnawaveAPIError("В ответе Remnawave отсутствует uuid пользователя")
+    user_id = _get_user_identifier(raw)
+    if not user_id:
+        raise RemnawaveAPIError(
+            "В ответе Remnawave отсутствует идентификатор пользователя"
+        )
 
-    patch_payload: Dict[str, Any] = {
-        "uuid": user_uuid,
-    }
-
+    patch_payload: Dict[str, Any] = {}
     if expire_ts is not None:
         patch_payload["expireAt"] = _epoch_to_iso(int(expire_ts))
-
     if traffic_limit_bytes is not None:
-        patch_payload["trafficLimitBytes"] = max(
-            0,
-            int(traffic_limit_bytes),
-        )
+        patch_payload["trafficLimitBytes"] = max(0, int(traffic_limit_bytes))
         patch_payload["trafficLimitStrategy"] = "NO_RESET"
 
-    if len(patch_payload) > 1:
-        await _request(
-            "PATCH",
-            "/api/users",
-            json_payload=patch_payload,
-        )
+    if patch_payload:
+        if _PANEL_GENERATION == "3.x+":
+            # 3.x+: PATCH /api/users/{id}
+            await _request(
+                "PATCH",
+                f"/api/users/{quote(user_id, safe='')}",
+                json_payload=patch_payload,
+            )
+        else:
+            # 2.x: PATCH /api/users с uuid в теле
+            patch_payload["uuid"] = user_id
+            await _request(
+                "PATCH",
+                "/api/users",
+                json_payload=patch_payload,
+            )
 
     if status is not None:
         normalized = status.strip().lower()
         if normalized in {"active", "enabled"}:
             await _request(
                 "POST",
-                f"/api/users/{quote(user_uuid, safe='')}/actions/enable",
+                f"/api/users/{quote(user_id, safe='')}/actions/enable",
             )
         elif normalized in {"disabled", "on_hold", "limited", "expired"}:
             await _request(
                 "POST",
-                f"/api/users/{quote(user_uuid, safe='')}/actions/disable",
+                f"/api/users/{quote(user_id, safe='')}/actions/disable",
             )
         else:
             raise ValueError(f"Unsupported user status: {status}")
+
+    # Инвалидируем кеш — данные пользователя изменились
+    global _USERS_LIST_CACHE
+    _USERS_LIST_CACHE = None
 
     updated = await _get_user_raw(str(raw.get("username") or username))
     final_raw = updated or raw
 
     if traffic_limit_bytes is not None:
         expected_limit = max(0, int(traffic_limit_bytes))
-
         try:
-            actual_limit = int(
-                final_raw.get("trafficLimitBytes") or 0
-            )
+            actual_limit = int(final_raw.get("trafficLimitBytes") or 0)
         except (TypeError, ValueError):
             actual_limit = -1
-
         if actual_limit != expected_limit:
             raise RemnawaveAPIError(
                 "Remnawave не применил лимит трафика: "
-                f"ожидалось {expected_limit}, "
-                f"получено {actual_limit}"
+                f"ожидалось {expected_limit}, получено {actual_limit}"
             )
 
     return _normalize_user_payload(final_raw)
 
 
 async def delete_user(username: str) -> None:
+    await _detect_panel_generation()
+
     raw = await _get_user_raw(username)
     if not raw:
         return
-    user_uuid = str(raw.get("uuid") or "")
-    if not user_uuid:
+    user_id = _get_user_identifier(raw)
+    if not user_id:
         return
+
     await _request(
         "DELETE",
-        f"/api/users/{quote(user_uuid, safe='')}",
+        f"/api/users/{quote(user_id, safe='')}",
         allow_404=True,
     )
 
+    # Инвалидируем кеш — пользователя больше нет
+    global _USERS_LIST_CACHE
+    _USERS_LIST_CACHE = None
+
 
 async def revoke_user_subscription(username: str) -> Dict[str, Any]:
+    await _detect_panel_generation()
+
     raw = await _get_user_raw(username)
     if not raw:
-        raise RemnawaveAPIError(f"Пользователь {username!r} не найден", status=404)
-    user_uuid = str(raw.get("uuid") or "")
+        raise RemnawaveAPIError(
+            f"Пользователь {username!r} не найден", status=404
+        )
+    user_id = _get_user_identifier(raw)
+    if not user_id:
+        raise RemnawaveAPIError(
+            "В ответе Remnawave отсутствует идентификатор пользователя"
+        )
+
     data = await _request(
         "POST",
-        f"/api/users/{quote(user_uuid, safe='')}/actions/revoke",
+        f"/api/users/{quote(user_id, safe='')}/actions/revoke",
     )
     updated = _unwrap(data)
     if not isinstance(updated, dict):
-        updated = await _get_user_raw(str(raw.get("username") or username)) or raw
+        updated = (
+            await _get_user_raw(str(raw.get("username") or username))
+            or raw
+        )
     return _normalize_user_payload(updated)
 
+
+# ==========================================================================
+# Публичный API: nodes
+# ==========================================================================
 
 def _extract_node_list(data: Any) -> List[Dict[str, Any]]:
     value = _unwrap(data)
@@ -644,7 +831,11 @@ def _extract_node_list(data: Any) -> List[Dict[str, Any]]:
 
 
 def _node_to_legacy(node: Dict[str, Any]) -> Dict[str, Any]:
-    name = node.get("name") or node.get("nodeName") or node.get("node_name")
+    name = (
+        node.get("name")
+        or node.get("nodeName")
+        or node.get("node_name")
+    )
     node_id = node.get("id") or node.get("uuid") or node.get("nodeUuid")
 
     total = 0
@@ -678,7 +869,6 @@ def _merge_nodes_with_stale_traffic(
     current: List[Dict[str, Any]],
     stale: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Сохраняет последнее известное значение трафика при fallback на /api/nodes."""
     stale_by_id = {
         str(item.get("node_id")): item
         for item in stale
@@ -762,27 +952,31 @@ async def get_nodes_usage() -> List[Dict[str, Any]]:
                 exc,
             )
 
-        # /api/nodes обычно отвечает быстрее и позволяет хотя бы показать
-        # список/статус нод. Если в нём нет traffic-полей, добавляем последнее
-        # успешное значение трафика из кэша.
         try:
             data = await _request(
                 "GET",
                 "/api/nodes",
                 timeout=_GET_TIMEOUT,
             )
-            fallback = [_node_to_legacy(node) for node in _extract_node_list(data)]
+            fallback = [
+                _node_to_legacy(node)
+                for node in _extract_node_list(data)
+            ]
             if fallback:
                 if stale:
-                    fallback = _merge_nodes_with_stale_traffic(fallback, stale)
+                    fallback = _merge_nodes_with_stale_traffic(
+                        fallback, stale
+                    )
                 _NODES_CACHE = (_now(), fallback)
                 return fallback
         except RemnawaveAPIError as exc:
-            logger.warning("Fallback /api/nodes тоже временно недоступен: %s", exc)
+            logger.warning(
+                "Fallback /api/nodes тоже временно недоступен: %s", exc
+            )
 
-        # Не ломаем пользовательский экран из-за краткого сбоя статистики.
-        # Возвращаем даже просроченный кэш в пределах STALE_TTL.
-        if stale and (_NODES_STALE_TTL <= 0 or stale_age < _NODES_STALE_TTL):
+        if stale and (
+            _NODES_STALE_TTL <= 0 or stale_age < _NODES_STALE_TTL
+        ):
             logger.warning(
                 "Возвращаю последнюю успешную статистику нод возрастом %.0f сек.",
                 stale_age,
@@ -792,8 +986,12 @@ async def get_nodes_usage() -> List[Dict[str, Any]]:
         return []
 
 
+# ==========================================================================
+# Публичный API: health
+# ==========================================================================
+
 async def keepalive() -> None:
-    """Проверяет health endpoint с повторами временных сетевых ошибок."""
+    await _detect_panel_generation()
     await _get_session()
     last_error: Optional[RemnawaveAPIError] = None
 
@@ -808,8 +1006,6 @@ async def keepalive() -> None:
 
         except RemnawaveAPIError as exc:
             last_error = exc
-
-            # Ошибки авторизации/валидации повтором не исправить.
             retryable = (
                 exc.status == 0
                 or exc.status == 429
@@ -818,9 +1014,7 @@ async def keepalive() -> None:
             if not retryable or attempt >= _KEEPALIVE_RETRIES:
                 raise
 
-            await asyncio.sleep(
-                _KEEPALIVE_RETRY_DELAY * attempt
-            )
+            await asyncio.sleep(_KEEPALIVE_RETRY_DELAY * attempt)
 
     if last_error is not None:
         raise last_error
