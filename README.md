@@ -8,7 +8,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
 [![aiogram](https://img.shields.io/badge/aiogram-3.29-2CA5E0?logo=telegram&logoColor=white)](https://aiogram.dev)
-[![Remnawave](https://img.shields.io/badge/Remnawave-2.8-6366f1)](https://docs.rw)
+[![Remnawave](https://img.shields.io/badge/Remnawave-2.x%2B-6366f1)](https://docs.rw)
 [![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
 </div>
