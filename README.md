@@ -38,9 +38,9 @@
 
 <div align="center">
 
-[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/zalupabotvpn)
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
 
-**[👉 t.me/zalupabotvpn](https://t.me/zalupabotvpn)**
+**[👉 t.me/zalupabotvpn](https://t.me/vpnbotzalupa))**
 
 </div>
 
@@ -79,7 +79,7 @@
 - 🔄 **Фоновая сверка** SQLite ↔ Remnawave (опционально, с автофиксом)
 - 📝 **Уведомления во второго бота** — все ошибки, покупки, триалы, рефералки
 - 🎨 **Кастомный бренд** — задаётся одним полем `BRAND_NAME`
-- 🐳 **Portable** — один `install.sh` разворачивает всё на чистом VPS
+- 🐳 **Portable** — один `install.sh` удобно!
 
 ---
 
@@ -544,9 +544,9 @@ A: Восстанови из бэкапа или пересоздай через
 
 **Если проект оказался полезным — поставь ⭐ на GitHub**
 
-[🐛 Нашёл баг?](https://github.com/director357/zalupabot/issues) · [💡 Есть идея?](https://github.com/director357/zalupabot/issues) · [🍴 Форкни](https://github.com/director357/zalupabot/fork)
+[🐛 Нашёл баг?](https://github.com/director357/vpn_bot_zalupa/issues) · [💡 Есть идея?](https://github.com/director357/vpn_bot_zalupa/issues) · [🍴 Форкни](https://github.com/director357/vpn_bot_zalupa/fork)
 
-[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/zalupabotvpn)
+[![Telegram Chat](https://img.shields.io/badge/💬_Вступить_в_чат-t.me/zalupabotvpn-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/vpnbotzalupa)
 
-**[👉 t.me/zalupabotvpn](https://t.me/zalupabotvpn)**
+**[👉 t.me/zalupabotvpn](https://t.me/vpnbotzalupa)**
 </div>
