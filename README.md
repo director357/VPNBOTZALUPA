@@ -478,17 +478,6 @@ A: Оставь `INFO_CHANNEL_USERNAME` пустым — проверка отк
 A: Восстанови из бэкапа или пересоздай через `install.sh`. Токены придётся ввести заново.
 
 ---
-
-## 📚 Стек
-
-- **[aiogram 3.29](https://aiogram.dev)** — async Telegram Bot framework
-- **[aiohttp 3.14](https://docs.aiohttp.org)** — HTTP клиент и сервер для callback'ов
-- **[Remnawave 2.8](https://docs.rw)** — VPN-панель
-- **[Platega](https://platega.io)** — приём платежей картой/СБП
-- **[SQLite](https://sqlite.org)** — локальная БД
-- **[qrcode](https://pypi.org/project/qrcode/)** + **Pillow** — генерация QR
-- **systemd** — управление сервисом
-
 ---
 
 ## 📄 Лицензия
