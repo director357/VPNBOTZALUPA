@@ -26,7 +26,7 @@
 
 <div align="center">
   
-  # VPN bot ZALUPA это вам не бедолага, у нас хуже:)
+  # VPN BOT ZALUPA это вам не бедолага, у нас хуже:)
   
 </div>
 
